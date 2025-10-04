@@ -1,1 +1,35 @@
-Debug
+# Build directories
+Debug/
+Release/
+
+# IDE-specific files
+.settings/
+.cproject
+.project
+
+# Build artifacts
+*.o
+*.d
+*.su
+*.elf
+*.map
+*.bin
+*.hex
+*.list
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Generated files
+*.log
+
+# STM32CubeIDE specific
+*.launch
+.mxproject

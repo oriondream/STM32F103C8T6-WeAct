@@ -1,11 +1,101 @@
-# INTRODUCTION
-This project demonstrate the handling of external interupt (EXTI) event using
-WeAct STM32F103C8T6 Bluepill plus board.
+# STM32F103C8T6 I2C Slave Communication Demo
 
-Once turned on, onboard LED (PB2) toggles slowly every one second. 
+## Overview
+This project demonstrates I2C slave communication using the WeAct STM32F103C8T6 Blue Pill Plus board. The device operates as an I2C slave and receives 4-byte messages from an I2C master, logging the data via UART.
 
-The KEY button of this board connects to pin A0. Once pressed, onboard LED
-(PB2) will flash rapidly.
+## Features
+- **I2C Slave Mode**: Listens on I2C address 0x37 (55 << 1)
+- **UART Logging**: Outputs received I2C data at 115200 baud
+- **LED Feedback**: Onboard LED (PB2) indicates system status
+- **Button Input**: KEY button (PA0) triggers fast LED toggle mode
+- **Interrupt-Driven**: Uses interrupts for both I2C reception and button input
 
-# Settings notes
-PA0 is selected pull-down, GPIO_EXTI0, enabled in NVIC (EXTI line0 interrupt -> true)
+## Hardware Configuration
+
+### Peripherals Used
+- **I2C2**: Slave mode, 100kHz, 7-bit addressing (address 0x37)
+- **USART1**: 115200 baud, 8N1 for debug output
+- **GPIO PA0**: KEY button input with pull-down, EXTI interrupt enabled
+- **GPIO PB2**: Onboard LED output
+- **CAN1**: Initialized but not currently used in application
+
+### Pin Assignments
+- **PA0**: KEY button (input, pull-down, rising/falling edge interrupt)
+- **PB2**: Onboard LED (output)
+- **PB10**: I2C2_SCL
+- **PB11**: I2C2_SDA
+- **PA9**: USART1_TX
+- **PA10**: USART1_RX
+
+## Operation
+
+### LED Behavior
+1. **Normal Mode**: LED toggles slowly (every 1 second)
+2. **Fast Mode**: LED toggles rapidly (every 80ms) for 2 seconds after:
+   - KEY button is pressed
+   - I2C data is received
+
+### I2C Communication
+- Device acts as I2C slave at address 0x37
+- Expects 4-byte messages from I2C master
+- Received data is logged via UART in format: `<count> received [byte0 byte1 byte2 byte3]`
+- When no data is received, periodic status messages are sent: `No data for Xls`
+
+### Button Input
+- Press KEY button (PA0) to trigger fast LED toggle mode
+- Fast mode lasts for 2 seconds, then returns to normal slow toggle
+
+## UART Output Format
+```
+1 received [10 20 30 40]
+2 received [50 60 70 80]
+No data for 3s
+No data for 4s
+```
+
+## Building and Flashing
+This is an STM32CubeIDE project. To build and flash:
+1. Open the project in STM32CubeIDE
+2. Build the project (Ctrl+B)
+3. Flash to the target device using ST-Link
+
+## Testing I2C Communication
+Use an I2C master device (Arduino, Raspberry Pi, etc.) to send 4-byte messages to address 0x37:
+
+### Example with Arduino:
+```cpp
+#include <Wire.h>
+
+void setup() {
+  Wire.begin();
+}
+
+void loop() {
+  Wire.beginTransmission(0x37);
+  Wire.write(0x10);
+  Wire.write(0x20);
+  Wire.write(0x30);
+  Wire.write(0x40);
+  Wire.endTransmission();
+  delay(1000);
+}
+```
+
+### Example with i2c-tools (Linux):
+```bash
+i2cset -y 1 0x37 0x10 0x20 0x30 0x40 i
+```
+
+## System Clock
+- External crystal: 8 MHz HSE
+- PLL multiplier: x9
+- System clock: 72 MHz
+
+## Known Improvements Needed
+- CAN peripheral is initialized but not used - consider removing if not needed
+- Add I2C error recovery mechanism
+- Implement watchdog timer for enhanced reliability
+- Add button debouncing for cleaner interrupt handling
+
+## License
+This software is provided AS-IS under STMicroelectronics license terms.

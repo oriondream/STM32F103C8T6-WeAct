@@ -21,7 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -62,13 +62,58 @@ static void MX_USART1_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-volatile int triggered = 0;
+/* Variable to track if a full message has been received */
+volatile uint8_t RxCpltFlag = 0;
+
+/* LED toggle delay - volatile as it's modified in interrupt context */
+volatile uint32_t nextToggleDelay = 1000;
+
+/* Counter for button presses */
+volatile uint32_t btnPressTime = 0;
+
+#define FAST_TOGGLE_MS 40
+#define SLOW_TOGGLE_MS 1000
+#define FAST_TOGGLE_DURATION_MS 2000
+
+/* Buffer to store the received data */
+#define RX_BUFFER_SIZE 3
+uint8_t RxDataBuffer[RX_BUFFER_SIZE];
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-	triggered = 1;
+	/* Set fast toggle mode for 2 seconds after button press */
+	btnPressTime = HAL_GetTick();
+	nextToggleDelay = FAST_TOGGLE_MS;
 }
+
+/**
+  * @brief  Slave Receive complete callback.
+  * @param  hi2c Pointer to a I2C_HandleTypeDef structure that contains
+  * the configuration information for I2C module.
+  * @retval None
+  */
+void HAL_I2C_SlaveRxCpltCallback(I2C_HandleTypeDef *hi2c)
+{
+    /* Check if the callback is from the correct I2C peripheral */
+    if (hi2c->Instance == I2C2)
+    {
+        /* Set the flag to notify the main loop that data is ready */
+        RxCpltFlag = 1;
+
+        /* Restart I2C slave reception for next message */
+        /* Note: This is done in callback to ensure continuous reception */
+        HAL_I2C_Slave_Receive_IT(hi2c, (uint8_t*)hi2c->pBuffPtr - RX_BUFFER_SIZE, RX_BUFFER_SIZE);
+    }
+    nextToggleDelay = FAST_TOGGLE_MS;
+}
+
+void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c)
+{
+	nextToggleDelay = FAST_TOGGLE_MS;
+}
+
 /* USER CODE END 0 */
+
 
 /**
   * @brief  The application entry point.
@@ -109,19 +154,71 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  int delay = 1000;
+  int count = 0;
+  char cbuff[100]= {0};
+
+  uint32_t last_receive_ms = HAL_GetTick();
+  uint32_t last_update_ms = 0;
+
+  /* * START THE ASYNCHRONOUS RECEPTION
+   * * Parameters:
+   * 1. &hi2c1: Pointer to the I2C handle structure (e.g., I2C1)
+   * 2. RxDataBuffer: Pointer to the data buffer
+   * 3. RX_BUFFER_SIZE: The number of bytes to receive
+   */
+  if (HAL_I2C_Slave_Receive_IT(&hi2c2, RxDataBuffer, RX_BUFFER_SIZE) != HAL_OK)
+  {
+      /* Error handling */
+      Error_Handler();
+  }
+
   while (1)
   {
-// TODO: triggering using key not working yet
-	if (triggered)
-	{
-		delay = 80;
+	/* Check if we should return to slow toggle mode */
+	uint32_t now_ms = HAL_GetTick();
+	if (btnPressTime > 0 && (now_ms - btnPressTime) > FAST_TOGGLE_DURATION_MS) {
+		nextToggleDelay = SLOW_TOGGLE_MS;
+		btnPressTime = 0; /* Reset timer */
 	}
+
+	/* Toggle LED at current rate */
 	HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_2);
-	HAL_Delay(delay);
+	HAL_Delay(nextToggleDelay);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	
+	/* Check if I2C data has been received */
+	if (RxCpltFlag == 1)
+	{
+		++count;
+		/* Only print the 4 bytes we actually received (RX_BUFFER_SIZE = 4) */
+		sprintf(cbuff, "%d received [%d %d %d %d]\r\n", count,
+			RxDataBuffer[0],
+			RxDataBuffer[1],
+			RxDataBuffer[2],
+			RxDataBuffer[3]
+		);
+
+		HAL_UART_Transmit(&huart1, (uint8_t*)cbuff, strlen(cbuff), 100);
+
+		last_receive_ms = HAL_GetTick();
+		
+		/* Set fast toggle mode for 2 seconds after I2C receive */
+		btnPressTime = HAL_GetTick();
+		nextToggleDelay = FAST_TOGGLE_MS;
+		
+		RxCpltFlag = 0;
+	}
+	else {
+		/* Periodically report no data status */
+		if (now_ms - last_update_ms >= 1000)
+		{
+			sprintf(cbuff, "No data for %lds\r\n", (now_ms - last_receive_ms) / 1000);
+			last_update_ms = now_ms;
+			HAL_UART_Transmit(&huart1, (uint8_t*)cbuff, strlen(cbuff), 100);
+		}
+	}
   }
   /* USER CODE END 3 */
 }
@@ -220,12 +317,15 @@ static void MX_I2C2_Init(void)
   hi2c2.Instance = I2C2;
   hi2c2.Init.ClockSpeed = 100000;
   hi2c2.Init.DutyCycle = I2C_DUTYCYCLE_2;
-  hi2c2.Init.OwnAddress1 = 0;
+
+  // Strangely, the API needs this
+  hi2c2.Init.OwnAddress1 = 55 << 1;
+
   hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
   hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
   hi2c2.Init.OwnAddress2 = 0;
   hi2c2.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-  hi2c2.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  hi2c2.Init.NoStretchMode = I2C_NOSTRETCH_ENABLE;
   if (HAL_I2C_Init(&hi2c2) != HAL_OK)
   {
     Error_Handler();
@@ -324,6 +424,7 @@ void Error_Handler(void)
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
   __disable_irq();
+  nextToggleDelay = FAST_TOGGLE_MS;
   while (1)
   {
   }
