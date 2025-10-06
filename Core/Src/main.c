@@ -114,7 +114,6 @@ void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c)
 
 /* USER CODE END 0 */
 
-
 /**
   * @brief  The application entry point.
   * @retval int
@@ -182,7 +181,7 @@ int main(void)
 	}
 
 	/* Toggle LED at current rate */
-	HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_2);
+	HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_2 | GPIO_PIN_6);
 	HAL_Delay(nextToggleDelay);
     /* USER CODE END WHILE */
 
@@ -192,12 +191,15 @@ int main(void)
 	if (RxCpltFlag == 1)
 	{
 		++count;
-		/* Only print the 4 bytes we actually received (RX_BUFFER_SIZE = 4) */
-		sprintf(cbuff, "%d received [%d %d %d %d]\r\n", count,
+		/* Only print the 3 bytes we actually received (RX_BUFFER_SIZE = 3) */
+		sprintf(cbuff, "\x1b[32m" "[%5d:%3d]"    "\x1b[0m"
+				                  " received "
+				       "\x1b[33m" "["            "\x1b[0m"
+				                  "%3d %3d %3d"
+				       "\x1b[33m" "]\r\n"        "\x1b[0m", now_ms/1000, now_ms%1000,
 			RxDataBuffer[0],
 			RxDataBuffer[1],
-			RxDataBuffer[2],
-			RxDataBuffer[3]
+			RxDataBuffer[2]
 		);
 
 		HAL_UART_Transmit(&huart1, (uint8_t*)cbuff, strlen(cbuff), 100);
@@ -212,7 +214,7 @@ int main(void)
 	}
 	else {
 		/* Periodically report no data status */
-		if (now_ms - last_update_ms >= 1000)
+		if (now_ms - last_receive_ms >= 1000 && now_ms - last_update_ms >= 1000)
 		{
 			sprintf(cbuff, "No data for %lds\r\n", (now_ms - last_receive_ms) / 1000);
 			last_update_ms = now_ms;
@@ -313,19 +315,20 @@ static void MX_I2C2_Init(void)
 
   /* USER CODE BEGIN I2C2_Init 1 */
 
+// STM32CubeMX performs bit shift to the assigned address
+// The value of OwnAddress1 does NOT reflect the true address assigned
+// in the Cube MX. It is double the value.
+
   /* USER CODE END I2C2_Init 1 */
   hi2c2.Instance = I2C2;
   hi2c2.Init.ClockSpeed = 100000;
   hi2c2.Init.DutyCycle = I2C_DUTYCYCLE_2;
-
-  // Strangely, the API needs this
-  hi2c2.Init.OwnAddress1 = 55 << 1;
-
+  hi2c2.Init.OwnAddress1 = 110;
   hi2c2.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
   hi2c2.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
   hi2c2.Init.OwnAddress2 = 0;
   hi2c2.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-  hi2c2.Init.NoStretchMode = I2C_NOSTRETCH_ENABLE;
+  hi2c2.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
   if (HAL_I2C_Init(&hi2c2) != HAL_OK)
   {
     Error_Handler();
@@ -387,7 +390,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LED_PB2_GPIO_Port, LED_PB2_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, LED_PB2_Pin|GPIO_PIN_6, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : BTN_KEY_Pin */
   GPIO_InitStruct.Pin = BTN_KEY_Pin;
@@ -395,12 +398,12 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(BTN_KEY_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : LED_PB2_Pin */
-  GPIO_InitStruct.Pin = LED_PB2_Pin;
+  /*Configure GPIO pins : LED_PB2_Pin PB6 */
+  GPIO_InitStruct.Pin = LED_PB2_Pin|GPIO_PIN_6;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(LED_PB2_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);

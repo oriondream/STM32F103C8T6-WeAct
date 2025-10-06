@@ -36,9 +36,9 @@ This project demonstrates I2C slave communication using the WeAct STM32F103C8T6 
    - I2C data is received
 
 ### I2C Communication
-- Device acts as I2C slave at address 0x37
-- Expects 4-byte messages from I2C master
-- Received data is logged via UART in format: `<count> received [byte0 byte1 byte2 byte3]`
+- Device acts as I2C slave at address 0x07
+- Expects 3-byte messages from I2C master
+- Received data is logged via UART in format: `[second:millisecond] received [byte0 byte1 byte2]`
 - When no data is received, periodic status messages are sent: `No data for Xls`
 
 ### Button Input
@@ -47,10 +47,12 @@ This project demonstrates I2C slave communication using the WeAct STM32F103C8T6 
 
 ## UART Output Format
 ```
-1 received [10 20 30 40]
-2 received [50 60 70 80]
-No data for 3s
-No data for 4s
+...
+[   168:123] received [ 16  15 240]
+[   168:123] received [ 32  15 240]
+[   168:123] received [ 64  15 240]
+[   168:123] received [128  15 240]
+...
 ```
 
 ## Building and Flashing
@@ -64,20 +66,29 @@ Use an I2C master device (Arduino, Raspberry Pi, etc.) to send 4-byte messages t
 
 ### Example with Arduino:
 ```cpp
+// Include the required Wire library for I2C
 #include <Wire.h>
+uint8_t x = 1;
 
 void setup() {
   Wire.begin();
+  Wire.setClock(100000);
 }
 
-void loop() {
-  Wire.beginTransmission(0x37);
-  Wire.write(0x10);
-  Wire.write(0x20);
-  Wire.write(0x30);
-  Wire.write(0x40);
-  Wire.endTransmission();
-  delay(1000);
+void loop() 
+{
+  Wire.beginTransmission(7); // transmit to device #55
+  Wire.write(x);                 // sends x 
+  Wire.write(0x0F);              // sends x
+  Wire.write(0xF0);              // sends x
+  Wire.endTransmission();     // stop transmitting
+
+  delay(200);
+  
+  x <<= 1;
+  if (x == 0) {
+    x = 1;
+  }  
 }
 ```
 
@@ -98,4 +109,4 @@ i2cset -y 1 0x37 0x10 0x20 0x30 0x40 i
 - Add button debouncing for cleaner interrupt handling
 
 ## License
-This software is provided AS-IS under STMicroelectronics license terms.
+This software is provided AS-IS.
