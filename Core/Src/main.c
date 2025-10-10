@@ -31,7 +31,9 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define ADC_MODE_POLLING 0
+#define ADC_MODE_INTERRUPT 1
+#define ADC_MODE ADC_MODE_POLLING
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -40,6 +42,8 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+ADC_HandleTypeDef hadc1;
+
 CAN_HandleTypeDef hcan;
 
 I2C_HandleTypeDef hi2c2;
@@ -56,20 +60,28 @@ static void MX_GPIO_Init(void);
 static void MX_CAN_Init(void);
 static void MX_I2C2_Init(void);
 static void MX_USART1_UART_Init(void);
+static void MX_ADC1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
 /* Variable to track if a full message has been received */
 volatile uint8_t RxCpltFlag = 0;
+
+/* Variable to track if a full message has been received */
+volatile uint8_t ADCcpltFlag = 0;
 
 /* LED toggle delay - volatile as it's modified in interrupt context */
 volatile uint32_t nextToggleDelay = 1000;
 
 /* Counter for button presses */
 volatile uint32_t btnPressTime = 0;
+
+/* Analog-Digital Conversion result*/
+volatile uint16_t AD_RES = 0;
 
 #define FAST_TOGGLE_MS 40
 #define SLOW_TOGGLE_MS 1000
@@ -112,6 +124,13 @@ void HAL_I2C_ErrorCallback(I2C_HandleTypeDef *hi2c)
 	nextToggleDelay = FAST_TOGGLE_MS;
 }
 
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
+{
+    // Read & Update The ADC Result
+    AD_RES = HAL_ADC_GetValue(&hadc1);
+    ADCcpltFlag = 1;
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -147,6 +166,7 @@ int main(void)
   MX_CAN_Init();
   MX_I2C2_Init();
   MX_USART1_UART_Init();
+  MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
@@ -170,6 +190,28 @@ int main(void)
       /* Error handling */
       Error_Handler();
   }
+
+  	HAL_ADC_Stop(&hadc1);
+
+    if (HAL_ADCEx_Calibration_Start(&hadc1) != HAL_OK)
+    {
+    	// Calibration failed
+    	Error_Handler(); // Define your error handler
+    }
+
+#if ADC_MODE==ADC_MODE_POLLING
+    if (HAL_ADC_Start(&hadc1))
+    {
+        /* Error handling */
+        Error_Handler();
+    }
+#elif ADC_MODE==ADC_MODE_INTERRUPT
+    if (HAL_ADC_Start_IT(&hadc1))
+    {
+        /* Error handling */
+        Error_Handler();
+    }
+#endif
 
   while (1)
   {
@@ -221,6 +263,31 @@ int main(void)
 			HAL_UART_Transmit(&huart1, (uint8_t*)cbuff, strlen(cbuff), 100);
 		}
 	}
+
+#if ADC_MODE==ADC_MODE_INTERRUPT
+	if (ADCcpltFlag)
+	{
+		sprintf(cbuff, "\x1b[32m" "[%5d:%3d]"    "\x1b[0m"
+				                  " ADC: %6d",
+	        now_ms/1000,
+			now_ms%1000,
+			AD_RES
+		);
+
+		HAL_UART_Transmit(&huart1, (uint8_t*)cbuff, strlen(cbuff), 100);
+		ADCcpltFlag = 0;
+	}
+#else
+	HAL_ADC_PollForConversion(&hadc1, 1);
+	AD_RES = HAL_ADC_GetValue(&hadc1);
+	sprintf(cbuff, "\x1b[32m" "[%5d:%3d]"    "\x1b[0m"
+			                  " ADC: %6d\r\n",
+        now_ms/1000,
+		now_ms%1000,
+		AD_RES
+	);
+	HAL_UART_Transmit(&huart1, (uint8_t*)cbuff, strlen(cbuff), 100);
+#endif
   }
   /* USER CODE END 3 */
 }
@@ -233,6 +300,7 @@ void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+  RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
 
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
@@ -262,6 +330,59 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ADC;
+  PeriphClkInit.AdcClockSelection = RCC_ADCPCLK2_DIV2;
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+/**
+  * @brief ADC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC1_Init(void)
+{
+
+  /* USER CODE BEGIN ADC1_Init 0 */
+
+  /* USER CODE END ADC1_Init 0 */
+
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC1_Init 1 */
+
+  /* USER CODE END ADC1_Init 1 */
+
+  /** Common config
+  */
+  hadc1.Instance = ADC1;
+  hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
+  hadc1.Init.ContinuousConvMode = ENABLE;
+  hadc1.Init.DiscontinuousConvMode = DISABLE;
+  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc1.Init.NbrOfConversion = 1;
+  if (HAL_ADC_Init(&hadc1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_7;
+  sConfig.Rank = ADC_REGULAR_RANK_1;
+  sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
+  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC1_Init 2 */
+
+  /* USER CODE END ADC1_Init 2 */
+
 }
 
 /**
@@ -385,12 +506,19 @@ static void MX_GPIO_Init(void)
   /* USER CODE END MX_GPIO_Init_1 */
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, LED_PB2_Pin|GPIO_PIN_6, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : PC15 */
+  GPIO_InitStruct.Pin = GPIO_PIN_15;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
   /*Configure GPIO pin : BTN_KEY_Pin */
   GPIO_InitStruct.Pin = BTN_KEY_Pin;
