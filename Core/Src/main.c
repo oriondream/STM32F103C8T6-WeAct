@@ -33,7 +33,7 @@
 /* USER CODE BEGIN PD */
 #define ADC_MODE_POLLING 0
 #define ADC_MODE_INTERRUPT 1
-#define ADC_MODE ADC_MODE_POLLING
+#define ADC_MODE ADC_MODE_INTERRUPT
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -48,6 +48,8 @@ CAN_HandleTypeDef hcan;
 
 I2C_HandleTypeDef hi2c2;
 
+TIM_HandleTypeDef htim3;
+
 UART_HandleTypeDef huart1;
 
 /* USER CODE BEGIN PV */
@@ -61,6 +63,7 @@ static void MX_CAN_Init(void);
 static void MX_I2C2_Init(void);
 static void MX_USART1_UART_Init(void);
 static void MX_ADC1_Init(void);
+static void MX_TIM3_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -131,6 +134,12 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
     ADCcpltFlag = 1;
 }
 
+void clear_screen(UART_HandleTypeDef* huart)
+{
+	const char* CLEAR = "\033[2J\0";
+	HAL_UART_Transmit(&huart, (uint8_t*)CLEAR, strlen(CLEAR), 100);
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -141,8 +150,6 @@ int main(void)
 {
 
   /* USER CODE BEGIN 1 */
-  //TODO:
-
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
@@ -167,6 +174,7 @@ int main(void)
   MX_I2C2_Init();
   MX_USART1_UART_Init();
   MX_ADC1_Init();
+  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
@@ -174,7 +182,7 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   int count = 0;
-  char cbuff[100]= {0};
+  char cbuff[400]= {0};
 
   uint32_t last_receive_ms = HAL_GetTick();
   uint32_t last_update_ms = 0;
@@ -206,15 +214,18 @@ int main(void)
         Error_Handler();
     }
 #elif ADC_MODE==ADC_MODE_INTERRUPT
+    HAL_TIM_Base_Start(&htim3); // Start Timer3 (Trigger Source For ADC1)
     if (HAL_ADC_Start_IT(&hadc1))
     {
         /* Error handling */
         Error_Handler();
     }
 #endif
+    //TODO:
+    clear_screen(&huart1);
 
-  while (1)
-  {
+    while (1)
+    {
 	/* Check if we should return to slow toggle mode */
 	uint32_t now_ms = HAL_GetTick();
 	if (btnPressTime > 0 && (now_ms - btnPressTime) > FAST_TOGGLE_DURATION_MS) {
@@ -234,11 +245,11 @@ int main(void)
 	{
 		++count;
 		/* Only print the 3 bytes we actually received (RX_BUFFER_SIZE = 3) */
-		sprintf(cbuff, "\x1b[32m" "[%5d:%3d]"    "\x1b[0m"
-				                  " received "
+		sprintf(cbuff, "\033[1;1H\x1b[32m" "[%5d:%3d]"    "\x1b[0m"
+				                  " I2C2 "
 				       "\x1b[33m" "["            "\x1b[0m"
 				                  "%3d %3d %3d"
-				       "\x1b[33m" "]\r\n"        "\x1b[0m", now_ms/1000, now_ms%1000,
+				       "\x1b[33m" "]"        "\x1b[0m", now_ms/1000, now_ms%1000,
 			RxDataBuffer[0],
 			RxDataBuffer[1],
 			RxDataBuffer[2]
@@ -267,10 +278,8 @@ int main(void)
 #if ADC_MODE==ADC_MODE_INTERRUPT
 	if (ADCcpltFlag)
 	{
-		sprintf(cbuff, "\x1b[32m" "[%5d:%3d]"    "\x1b[0m"
-				                  " ADC: %6d",
-	        now_ms/1000,
-			now_ms%1000,
+		sprintf(cbuff, "\033[2;12H"
+				       " ADC: %6d",
 			AD_RES
 		);
 
@@ -278,15 +287,15 @@ int main(void)
 		ADCcpltFlag = 0;
 	}
 #else
-	HAL_ADC_PollForConversion(&hadc1, 1);
-	AD_RES = HAL_ADC_GetValue(&hadc1);
-	sprintf(cbuff, "\x1b[32m" "[%5d:%3d]"    "\x1b[0m"
+	  HAL_ADC_PollForConversion(&hadc1, 1);
+	  AD_RES = HAL_ADC_GetValue(&hadc1);
+	  sprintf(cbuff, "\x1b[32m" "[%5d:%3d]"    "\x1b[0m"
 			                  " ADC: %6d\r\n",
-        now_ms/1000,
-		now_ms%1000,
-		AD_RES
-	);
-	HAL_UART_Transmit(&huart1, (uint8_t*)cbuff, strlen(cbuff), 100);
+          now_ms/1000,
+		  now_ms%1000,
+		  AD_RES
+	  );
+	  HAL_UART_Transmit(&huart1, (uint8_t*)cbuff, strlen(cbuff), 100);
 #endif
   }
   /* USER CODE END 3 */
@@ -331,7 +340,7 @@ void SystemClock_Config(void)
     Error_Handler();
   }
   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_ADC;
-  PeriphClkInit.AdcClockSelection = RCC_ADCPCLK2_DIV2;
+  PeriphClkInit.AdcClockSelection = RCC_ADCPCLK2_DIV6;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
     Error_Handler();
@@ -360,9 +369,9 @@ static void MX_ADC1_Init(void)
   */
   hadc1.Instance = ADC1;
   hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
-  hadc1.Init.ContinuousConvMode = ENABLE;
+  hadc1.Init.ContinuousConvMode = DISABLE;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
-  hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIGCONV_T3_TRGO;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc1.Init.NbrOfConversion = 1;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
@@ -457,6 +466,51 @@ static void MX_I2C2_Init(void)
   /* USER CODE BEGIN I2C2_Init 2 */
 
   /* USER CODE END I2C2_Init 2 */
+
+}
+
+/**
+  * @brief TIM3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM3_Init(void)
+{
+
+  /* USER CODE BEGIN TIM3_Init 0 */
+
+  /* USER CODE END TIM3_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM3_Init 1 */
+
+  /* USER CODE END TIM3_Init 1 */
+  htim3.Instance = TIM3;
+  htim3.Init.Prescaler = 23;
+  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim3.Init.Period = 59999;
+  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM3_Init 2 */
+
+  /* USER CODE END TIM3_Init 2 */
 
 }
 
