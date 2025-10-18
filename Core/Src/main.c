@@ -31,9 +31,18 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define ANSI_GREEN 	"\033[1;1H\x1b[32m"
+#define ANSI_END 	"\x1b[0m"
+#define ANSI_YELLOW "\x1b[33m"
+
 #define ADC_MODE_POLLING 0
 #define ADC_MODE_INTERRUPT 1
 #define ADC_MODE ADC_MODE_INTERRUPT
+
+#define FAST_TOGGLE_MS 40
+#define SLOW_TOGGLE_MS 1000
+#define FAST_TOGGLE_DURATION_MS 2000
+#define RX_BUFFER_SIZE 3
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -86,13 +95,16 @@ volatile uint32_t btnPressTime = 0;
 /* Analog-Digital Conversion result*/
 volatile uint16_t AD_RES = 0;
 
-#define FAST_TOGGLE_MS 40
-#define SLOW_TOGGLE_MS 1000
-#define FAST_TOGGLE_DURATION_MS 2000
-
-/* Buffer to store the received data */
-#define RX_BUFFER_SIZE 3
+/* Buffer to store the received I2C data */
 uint8_t RxDataBuffer[RX_BUFFER_SIZE];
+
+CAN_RxHeaderTypeDef RxHeader;
+CAN_TxHeaderTypeDef TxHeader;
+
+uint8_t RxData[8];
+uint8_t TxData[8];
+
+int datacheck = 0;
 
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
@@ -134,11 +146,26 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
     ADCcpltFlag = 1;
 }
 
+void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
+{
+	HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &RxHeader, RxData);
+	if (RxHeader.DLC == 8)
+	{
+		datacheck = 1;
+//		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
+//		HAL_Delay(10);
+//		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
+//		HAL_Delay(10);
+	}
+}
+
 void clear_screen(UART_HandleTypeDef* huart)
 {
 	const char* CLEAR = "\033[2J\0";
 	HAL_UART_Transmit(&huart, (uint8_t*)CLEAR, strlen(CLEAR), 100);
 }
+
+
 
 /* USER CODE END 0 */
 
@@ -176,6 +203,29 @@ int main(void)
   MX_ADC1_Init();
   MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
+
+  /*##-2- Configure the CAN Filter ###########################################*/
+  CAN_FilterTypeDef sFilterConfig;
+
+  sFilterConfig.FilterBank = 0;
+  sFilterConfig.FilterMode = CAN_FILTERMODE_IDMASK;
+  sFilterConfig.FilterScale = CAN_FILTERSCALE_32BIT;
+  sFilterConfig.FilterIdHigh = 0x0000;
+  sFilterConfig.FilterIdLow = 0x0000;
+  sFilterConfig.FilterMaskIdHigh = 0x0000;
+  sFilterConfig.FilterMaskIdLow = 0x0000;
+  sFilterConfig.FilterFIFOAssignment = CAN_RX_FIFO0;
+  sFilterConfig.FilterActivation = ENABLE;
+  sFilterConfig.SlaveStartFilterBank = 14;
+
+  if (HAL_CAN_ConfigFilter(&hcan, &sFilterConfig) != HAL_OK)
+  {
+    /* Filter configuration Error */
+    Error_Handler();
+  }
+
+  HAL_CAN_Start(&hcan);
+  HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO0_MSG_PENDING);
 
   /* USER CODE END 2 */
 
@@ -234,22 +284,26 @@ int main(void)
 	}
 
 	/* Toggle LED at current rate */
-	HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_2 | GPIO_PIN_6);
+	uint16_t LEDS = GPIO_PIN_2 | GPIO_PIN_6;
+	if (datacheck == 1)
+	{
+		LEDS |= GPIO_PIN_3;
+	}
+
+	HAL_GPIO_TogglePin(GPIOB, LEDS);
 	HAL_Delay(nextToggleDelay);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	
 	/* Check if I2C data has been received */
 	if (RxCpltFlag == 1)
 	{
 		++count;
 		/* Only print the 3 bytes we actually received (RX_BUFFER_SIZE = 3) */
-		sprintf(cbuff, "\033[1;1H\x1b[32m" "[%5d:%3d]"    "\x1b[0m"
-				                  " I2C2 "
-				       "\x1b[33m" "["            "\x1b[0m"
-				                  "%3d %3d %3d"
-				       "\x1b[33m" "]"        "\x1b[0m", now_ms/1000, now_ms%1000,
+		sprintf(cbuff, ANSI_GREEN"[%5ld:%3ld]"ANSI_END" I2C2 "
+				       ANSI_YELLOW"["ANSI_END"%3d %3d %3d"ANSI_YELLOW "]"ANSI_END,
+			now_ms/1000,
+			now_ms%1000,
 			RxDataBuffer[0],
 			RxDataBuffer[1],
 			RxDataBuffer[2]
@@ -410,11 +464,11 @@ static void MX_CAN_Init(void)
 
   /* USER CODE END CAN_Init 1 */
   hcan.Instance = CAN1;
-  hcan.Init.Prescaler = 16;
+  hcan.Init.Prescaler = 4;
   hcan.Init.Mode = CAN_MODE_NORMAL;
   hcan.Init.SyncJumpWidth = CAN_SJW_1TQ;
-  hcan.Init.TimeSeg1 = CAN_BS1_1TQ;
-  hcan.Init.TimeSeg2 = CAN_BS2_1TQ;
+  hcan.Init.TimeSeg1 = CAN_BS1_4TQ;
+  hcan.Init.TimeSeg2 = CAN_BS2_4TQ;
   hcan.Init.TimeTriggeredMode = DISABLE;
   hcan.Init.AutoBusOff = DISABLE;
   hcan.Init.AutoWakeUp = DISABLE;
@@ -566,7 +620,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, LED_PB2_Pin|GPIO_PIN_6, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, LED_PB2_Pin|LED_CAN_Pin|GPIO_PIN_6, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : PC15 */
   GPIO_InitStruct.Pin = GPIO_PIN_15;
@@ -580,8 +634,8 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   HAL_GPIO_Init(BTN_KEY_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : LED_PB2_Pin PB6 */
-  GPIO_InitStruct.Pin = LED_PB2_Pin|GPIO_PIN_6;
+  /*Configure GPIO pins : LED_PB2_Pin LED_CAN_Pin PB6 */
+  GPIO_InitStruct.Pin = LED_PB2_Pin|LED_CAN_Pin|GPIO_PIN_6;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
