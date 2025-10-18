@@ -149,13 +149,18 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 {
 	HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &RxHeader, RxData);
-	if (RxHeader.DLC == 8)
+	if (RxHeader.DLC == 8
+		&& RxData[0] == 0
+		&& RxData[1] == 0xFF
+		&& RxData[2] == 0
+		&& RxData[3] == 0xFF
+		&& RxData[4] == 0
+		&& RxData[5] == 0xFF
+		&& RxData[6] == 0
+		&& RxData[7] == 0xFF
+		)
 	{
 		datacheck = 1;
-//		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
-//		HAL_Delay(10);
-//		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_3);
-//		HAL_Delay(10);
 	}
 }
 
