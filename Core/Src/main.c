@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <string.h>
+#include "ANSI_utils.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -31,10 +32,6 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define ANSI_GREEN 	"\033[1;1H\x1b[32m"
-#define ANSI_END 	"\x1b[0m"
-#define ANSI_YELLOW "\x1b[33m"
-
 #define ADC_MODE_POLLING 0
 #define ADC_MODE_INTERRUPT 1
 #define ADC_MODE ADC_MODE_INTERRUPT
@@ -163,14 +160,6 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
 		datacheck = 1;
 	}
 }
-
-void clear_screen(UART_HandleTypeDef* huart)
-{
-	const char* CLEAR = "\033[2J\0";
-	HAL_UART_Transmit(&huart, (uint8_t*)CLEAR, strlen(CLEAR), 100);
-}
-
-
 
 /* USER CODE END 0 */
 
