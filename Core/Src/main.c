@@ -270,81 +270,82 @@ int main(void)
 
     while (1)
     {
-	/* Check if we should return to slow toggle mode */
-	uint32_t now_ms = HAL_GetTick();
-	if (btnPressTime > 0 && (now_ms - btnPressTime) > FAST_TOGGLE_DURATION_MS) {
-		nextToggleDelay = SLOW_TOGGLE_MS;
-		btnPressTime = 0; /* Reset timer */
-	}
-
-	/* Toggle LED at current rate */
-	uint16_t LEDS = GPIO_PIN_2 | GPIO_PIN_6;
-	if (datacheck == 1)
-	{
-		LEDS |= GPIO_PIN_3;
-	}
-
-	HAL_GPIO_TogglePin(GPIOB, LEDS);
-	HAL_Delay(nextToggleDelay);
-    /* USER CODE END WHILE */
-
-    /* USER CODE BEGIN 3 */
-	/* Check if I2C data has been received */
-	if (RxCpltFlag == 1)
-	{
-		++count;
-		/* Only print the 3 bytes we actually received (RX_BUFFER_SIZE = 3) */
-		sprintf(cbuff, ANSI_GREEN"[%5ld:%3ld]"ANSI_END" I2C2 "
-				       ANSI_YELLOW"["ANSI_END"%3d %3d %3d"ANSI_YELLOW "]"ANSI_END,
-			now_ms/1000,
-			now_ms%1000,
-			RxDataBuffer[0],
-			RxDataBuffer[1],
-			RxDataBuffer[2]
-		);
-
-		HAL_UART_Transmit(&huart1, (uint8_t*)cbuff, strlen(cbuff), 100);
-
-		last_receive_ms = HAL_GetTick();
-		
-		/* Set fast toggle mode for 2 seconds after I2C receive */
-		btnPressTime = HAL_GetTick();
-		nextToggleDelay = FAST_TOGGLE_MS;
-		
-		RxCpltFlag = 0;
-	}
-	else {
-		/* Periodically report no data status */
-		if (now_ms - last_receive_ms >= 1000 && now_ms - last_update_ms >= 1000)
-		{
-			sprintf(cbuff, "No data for %lds\r\n", (now_ms - last_receive_ms) / 1000);
-			last_update_ms = now_ms;
-			HAL_UART_Transmit(&huart1, (uint8_t*)cbuff, strlen(cbuff), 100);
+		/* Check if we should return to slow toggle mode */
+		uint32_t now_ms = HAL_GetTick();
+		if (btnPressTime > 0 && (now_ms - btnPressTime) > FAST_TOGGLE_DURATION_MS) {
+			nextToggleDelay = SLOW_TOGGLE_MS;
+			btnPressTime = 0; /* Reset timer */
 		}
-	}
 
-#if ADC_MODE==ADC_MODE_INTERRUPT
-	if (ADCcpltFlag)
-	{
-		sprintf(cbuff, "\033[2;12H"
-				       " ADC: %6d",
-			AD_RES
-		);
+		/* Toggle LED at current rate */
+		uint16_t LEDS = GPIO_PIN_2 | GPIO_PIN_6;
+		if (datacheck == 1)
+		{
+			LEDS |= GPIO_PIN_3;
+			datacheck = 0;
+		}
 
-		HAL_UART_Transmit(&huart1, (uint8_t*)cbuff, strlen(cbuff), 100);
-		ADCcpltFlag = 0;
-	}
-#else
-	  HAL_ADC_PollForConversion(&hadc1, 1);
-	  AD_RES = HAL_ADC_GetValue(&hadc1);
-	  sprintf(cbuff, "\x1b[32m" "[%5d:%3d]"    "\x1b[0m"
-			                  " ADC: %6d\r\n",
-          now_ms/1000,
-		  now_ms%1000,
-		  AD_RES
-	  );
-	  HAL_UART_Transmit(&huart1, (uint8_t*)cbuff, strlen(cbuff), 100);
-#endif
+		HAL_GPIO_TogglePin(GPIOB, LEDS);
+		HAL_Delay(nextToggleDelay);
+		/* USER CODE END WHILE */
+
+		/* USER CODE BEGIN 3 */
+		/* Check if I2C data has been received */
+		if (RxCpltFlag == 1)
+		{
+			++count;
+			/* Only print the 3 bytes we actually received (RX_BUFFER_SIZE = 3) */
+			sprintf(cbuff, ANSI_GREEN"[%5ld:%3ld]"ANSI_END" I2C2 "
+						   ANSI_YELLOW"["ANSI_END"%3d %3d %3d"ANSI_YELLOW "]"ANSI_END,
+				now_ms/1000,
+				now_ms%1000,
+				RxDataBuffer[0],
+				RxDataBuffer[1],
+				RxDataBuffer[2]
+			);
+
+			HAL_UART_Transmit(&huart1, (uint8_t*)cbuff, strlen(cbuff), 100);
+
+			last_receive_ms = HAL_GetTick();
+
+			/* Set fast toggle mode for 2 seconds after I2C receive */
+			btnPressTime = HAL_GetTick();
+			nextToggleDelay = FAST_TOGGLE_MS;
+
+			RxCpltFlag = 0;
+		}
+		else {
+			/* Periodically report no data status */
+			if (now_ms - last_receive_ms >= 1000 && now_ms - last_update_ms >= 1000)
+			{
+				sprintf(cbuff, "No data for %lds\r\n", (now_ms - last_receive_ms) / 1000);
+				last_update_ms = now_ms;
+				HAL_UART_Transmit(&huart1, (uint8_t*)cbuff, strlen(cbuff), 100);
+			}
+		}
+
+	#if ADC_MODE==ADC_MODE_INTERRUPT
+		if (ADCcpltFlag)
+		{
+			sprintf(cbuff, "\033[2;12H"
+						   " ADC: %6d",
+				AD_RES
+			);
+
+			HAL_UART_Transmit(&huart1, (uint8_t*)cbuff, strlen(cbuff), 100);
+			ADCcpltFlag = 0;
+		}
+	#else
+		  HAL_ADC_PollForConversion(&hadc1, 1);
+		  AD_RES = HAL_ADC_GetValue(&hadc1);
+		  sprintf(cbuff, "\x1b[32m" "[%5d:%3d]"    "\x1b[0m"
+								  " ADC: %6d\r\n",
+			  now_ms/1000,
+			  now_ms%1000,
+			  AD_RES
+		  );
+		  HAL_UART_Transmit(&huart1, (uint8_t*)cbuff, strlen(cbuff), 100);
+	#endif
   }
   /* USER CODE END 3 */
 }
